@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>An Electron's Journey: Interactive</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Slate & Cyan -->
+    <!-- Application Structure Plan: A single-page, vertically scrolling narrative structure. The user acts as 'The Gatekeeper', controlling V_GS and V_DS via sliders. The page is divided into three main interactive sections: 1. A visual representation of the n-MOS transistor that dynamically changes (channel formation, pinch-off). 2. A control panel with sliders and readouts. 3. A dynamic text area showing the corresponding scene from the screenplay. A Chart.js graph provides a quantitative I-V curve, plotting the live operating point. This structure was chosen to directly map the linear story of the report into an interactive, educational flow, making abstract physics concepts tangible and explorable. -->
+    <!-- Visualization & Content Choices: 
+        - Report Info: Transistor structure & states. Goal: Inform/Organize. Viz: Diagram built with styled HTML divs. Interaction: Divs change color, size, and visibility based on slider inputs to show channel formation and pinch-off. Justification: A direct, easy-to-understand visual analog of the physical device. Method: HTML/CSS/JS.
+        - Report Info: V_GS, V_DS, I_D relationship. Goal: Change/Compare. Viz: Chart.js Line Chart (I_D vs V_DS). Interaction: A highlighted point moves on the chart in real-time as sliders are adjusted. Changing V_GS selects a different curve. Justification: Standard, quantitative representation of device physics that complements the qualitative story. Library: Chart.js.
+        - Report Info: Screenplay narrative for each region. Goal: Inform/Context. Viz: Text block. Interaction: Text content updates as the operating region changes. Justification: Provides the core narrative context from the source report, linking the visuals to the story. Method: JS DOM manipulation.
+        - CONFIRMATION: NO SVG graphics used. NO Mermaid JS used.
+    -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+        .electron {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background-color: #06b6d4; /* cyan-500 */
+            border-radius: 50%;
+            will-change: transform;
+            opacity: 0;
+        }
+        .channel-gradient-triode {
+            background: linear-gradient(to right, #0891b2, #0891b2);
+        }
+        .channel-gradient-saturation {
+            background: linear-gradient(to right, #0891b2, #67e8f9);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold text-slate-900">An Electron's Journey</h1>
+            <p class="mt-2 text-lg text-slate-600">An interactive story of a transistor.</p>
+        </header>
+
+        <main class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            
+            <div class="bg-white p-6 rounded-xl shadow-lg border border-slate-200 flex flex-col justify-between">
+                <div>
+                    <h2 class="text-2xl font-bold mb-4 text-center">The Transistor</h2>
+                    <p class="text-slate-600 text-center mb-6">This is the world of our story. A Source, a Drain, and a Channel waiting to be formed. You are The Gatekeeper. Use the sliders to control the voltages and see what happens.</p>
+                    <div id="transistor-visualization" class="bg-slate-100 rounded-lg p-4 h-64 relative overflow-hidden select-none">
+                        <!-- Labels -->
+                        <span class="absolute top-2 left-2 text-sm font-semibold text-slate-500">Source (N+)</span>
+                        <span class="absolute top-2 right-2 text-sm font-semibold text-slate-500">Drain (N+)</span>
+                        <span class="absolute bottom-2 inset-x-0 text-center text-sm font-semibold text-slate-500">Substrate (P-type)</span>
+                        <span class="absolute -top-1 inset-x-0 text-center text-sm font-bold text-cyan-700">Gate</span>
+                        
+                        <!-- Gate -->
+                        <div class="absolute top-0 left-1/4 w-1/2 h-4 bg-cyan-500 rounded-b-md"></div>
+                        
+                        <!-- Oxide Layer -->
+                        <div class="absolute top-4 left-1/4 w-1/2 h-2 bg-slate-300 opacity-50"></div>
+                        
+                        <!-- Source and Drain Regions -->
+                        <div class="absolute top-6 left-0 w-1/4 h-24 bg-sky-300 rounded-r-lg"></div>
+                        <div class="absolute top-6 right-0 w-1/4 h-24 bg-sky-300 rounded-l-lg"></div>
+
+                        <!-- Channel -->
+                        <div id="channel" class="absolute top-6 left-1/4 w-1/2 h-2 transition-all duration-500 ease-in-out origin-left" style="opacity: 0;"></div>
+                    </div>
+                </div>
+
+                <div id="controls" class="mt-8">
+                     <h3 class="text-xl font-bold mb-4 text-center">Controls</h3>
+                     <div class="space-y-4">
+                        <div>
+                            <label for="vgs-slider" class="flex justify-between font-medium text-slate-700">
+                                <span>Gate Voltage (V_GS)</span>
+                                <span id="vgs-value">0.0 V</span>
+                            </label>
+                            <input id="vgs-slider" type="range" min="0" max="5" value="0" step="0.1" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                        <div>
+                            <label for="vds-slider" class="flex justify-between font-medium text-slate-700">
+                                <span>Drain Voltage (V_DS)</span>
+                                <span id="vds-value">0.0 V</span>
+                            </label>
+                            <input id="vds-slider" type="range" min="0" max="5" value="0" step="0.1" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                        <div>
+                            <label for="vth-slider" class="flex justify-between font-medium text-slate-700">
+                                <span>Threshold Voltage (V_th)</span>
+                                <span id="vth-value">1.0 V</span>
+                            </label>
+                            <input id="vth-slider" type="range" min="0.5" max="2.5" value="1.0" step="0.1" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-lg border border-slate-200">
+                <div id="story" class="mb-6 prose prose-slate max-w-none">
+                    <h2 id="story-title" class="text-2xl font-bold mb-2">Act I: The Cutoff Region</h2>
+                    <p id="story-text" class="text-slate-600">A massive, invisible wall of energy separates the Source and the Drain. The path is closed. The Gatekeeper sleeps. This is cutoff. No current flows.</p>
+                </div>
+                <div class="chart-container">
+                    <canvas id="iv-chart"></canvas>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        const vgsSlider = document.getElementById('vgs-slider');
+        const vdsSlider = document.getElementById('vds-slider');
+        const vthSlider = document.getElementById('vth-slider');
+        const vgsValue = document.getElementById('vgs-value');
+        const vdsValue = document.getElementById('vds-value');
+        const vthValue = document.getElementById('vth-value');
+
+        const storyTitle = document.getElementById('story-title');
+        const storyText = document.getElementById('story-text');
+        const channel = document.getElementById('channel');
+        const transistorVis = document.getElementById('transistor-visualization');
+
+        const K = 0.5; 
+
+        const storyContent = {
+            cutoff: {
+                title: "Act I: The Cutoff Region",
+                text: "That's the Drain voltage, kid. A siren's call. But the path is closed. The Gatekeeper sleeps. Without its blessing, we are trapped. This is cutoff. No current flows."
+            },
+            triode: {
+                title: "Act II: The Triode Region",
+                text: "The path! It's open! It's so crowded! I can barely move. The Drain's pull is still weak. We are many, and the path is uniform. Our current is small, limited by the resistance of this crowd."
+            },
+            saturation: {
+                title: "Act III: The Saturation Region",
+                text: "The channel is pinched off! The current can grow no more! She is violently accelerated across the tiny gap, reaching a maximum, constant velocity. The current is now controlled by the Gatekeeper alone."
+            }
+        };
+
+        let electrons = [];
+        const NUM_ELECTRONS = 50;
+
+        function createElectrons() {
+            for (let i = 0; i < NUM_ELECTRONS; i++) {
+                const electron = document.createElement('div');
+                electron.className = 'electron';
+                transistorVis.appendChild(electron);
+                electrons.push({
+                    el: electron,
+                    x: 0,
+                    y: 0,
+                    active: false,
+                    speed: 1,
+                });
+            }
+        }
+
+        function animateElectrons() {
+            const vgs = parseFloat(vgsSlider.value);
+            const vds = parseFloat(vdsSlider.value);
+            const vth = parseFloat(vthSlider.value);
+            const region = getRegion(vgs, vds, vth);
+
+            let activeCount = 0;
+            if (region === 'triode') {
+                activeCount = Math.floor(NUM_ELECTRONS * ((vgs - vth) / 5) * (vds / 5));
+            } else if (region === 'saturation') {
+                activeCount = Math.floor(NUM_ELECTRONS * ((vgs-vth) / 5));
+            }
+
+            electrons.forEach((e, i) => {
+                if (i < activeCount && !e.active) {
+                    e.active = true;
+                    e.x = Math.random() * 25;
+                    e.y = 24 + Math.random() * 8;
+                    e.el.style.opacity = '1';
+                    e.speed = 1 + Math.random();
+                } else if (i >= activeCount) {
+                    e.active = false;
+                    e.el.style.opacity = '0';
+                }
+
+                if (e.active) {
+                    let speedFactor = 1;
+                    if (region === 'saturation') {
+                         speedFactor = 2 + (vgs / 5) * 2;
+                    } else if (region === 'triode') {
+                        speedFactor = 1 + (vds / 5);
+                    }
+                    e.x += e.speed * speedFactor;
+                    if (e.x > transistorVis.clientWidth * 0.75) {
+                        e.x = Math.random() * 25;
+                    }
+                    e.el.style.transform = `translate(${e.x}px, ${e.y}px)`;
+                }
+            });
+
+            requestAnimationFrame(animateElectrons);
+        }
+
+        const ctx = document.getElementById('iv-chart').getContext('2d');
+        const chartData = {
+            datasets: []
+        };
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: chartData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        position: 'bottom',
+                        title: {
+                            display: true,
+                            text: 'Drain-Source Voltage (V_DS) [V]'
+                        },
+                        min: 0,
+                        max: 5
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Drain Current (I_D) [mA]'
+                        },
+                        min: 0,
+                        max: 10
+                    }
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'I-V Characteristic Curves'
+                    },
+                    tooltip: {
+                        enabled: false
+                    }
+                },
+                animation: {
+                    duration: 0
+                }
+            }
+        });
+
+        function calculateCurrent(vgs, vds, vth, k) {
+            if (vgs <= vth) {
+                return 0; // Cutoff
+            }
+            if (vds < (vgs - vth)) {
+                // Triode
+                return k * (2 * (vgs - vth) * vds - vds * vds);
+            } else {
+                // Saturation
+                return k * (vgs - vth) * (vgs - vth);
+            }
+        }
+        
+        function getRegion(vgs, vds, vth) {
+            if (vgs <= vth) return 'cutoff';
+            if (vds < (vgs - vth)) return 'triode';
+            return 'saturation';
+        }
+
+        function generateChartData() {
+            const vth = parseFloat(vthSlider.value);
+            const vgsSteps = [vth + 0.5, vth + 1.0, vth + 1.5, vth + 2.0, vth + 2.5, vth + 3.0, vth + 3.5, vth + 4.0].filter(v => v <= 5.0);
+            const datasets = vgsSteps.map(vgs => {
+                const dataPoints = [];
+                for (let vds = 0; vds <= 5; vds += 0.1) {
+                    dataPoints.push({ x: vds, y: calculateCurrent(vgs, vds, vth, K) });
+                }
+                return {
+                    label: `V_GS = ${vgs.toFixed(1)}V`,
+                    data: dataPoints,
+                    borderColor: 'rgba(128, 128, 128, 0.3)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.1
+                };
+            });
+            
+            datasets.push({
+                label: 'Operating Point',
+                data: [],
+                backgroundColor: '#ef4444',
+                borderColor: '#ef4444',
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                showLine: false
+            });
+
+            chart.data.datasets = datasets;
+            chart.update();
+        }
+
+        function update() {
+            const vgs = parseFloat(vgsSlider.value);
+            const vds = parseFloat(vdsSlider.value);
+            const vth = parseFloat(vthSlider.value);
+
+            vgsValue.textContent = `${vgs.toFixed(1)} V`;
+            vdsValue.textContent = `${vds.toFixed(1)} V`;
+            vthValue.textContent = `${vth.toFixed(1)} V`;
+            
+            const region = getRegion(vgs, vds, vth);
+            const current = calculateCurrent(vgs, vds, vth, K);
+
+            // Update story
+            storyTitle.textContent = storyContent[region].title;
+            storyText.textContent = storyContent[region].text;
+
+            // Update channel visualization
+            if (region === 'cutoff') {
+                channel.style.opacity = '0';
+            } else {
+                const channelOpacity = (vgs - vth) / (5 - vth);
+                channel.style.opacity = Math.max(0.1, channelOpacity).toString();
+                
+                if (region === 'triode') {
+                    channel.style.transform = 'scaleX(1)';
+                    channel.className = 'absolute top-6 left-1/4 w-1/2 h-2 transition-all duration-500 ease-in-out origin-left channel-gradient-triode';
+                } else { // Saturation
+                    const pinchOffFactor = 1 - Math.min(1, (vds - (vgs - vth)) / (5 - (vgs - vth)));
+                    channel.style.transform = `scaleX(${Math.max(0.1, pinchOffFactor)})`;
+                    channel.className = 'absolute top-6 left-1/4 w-1/2 h-2 transition-all duration-500 ease-in-out origin-left channel-gradient-saturation';
+                }
+            }
+
+            // Update chart
+            chart.data.datasets.forEach((dataset) => {
+                if (dataset.label.startsWith('V_GS')) {
+                     const dsVgs = parseFloat(dataset.label.split('=')[1]);
+                     const isActive = Math.abs(dsVgs - vgs) < 0.25;
+                     dataset.borderColor = isActive ? '#06b6d4' : 'rgba(128, 128, 128, 0.3)';
+                     dataset.borderWidth = isActive ? 3 : 2;
+                }
+            });
+            
+            chart.data.datasets[chart.data.datasets.length - 1].data = [{ x: vds, y: current }];
+            chart.update();
+        }
+
+        window.onload = () => {
+            generateChartData();
+            createElectrons();
+            animateElectrons();
+            update();
+            vgsSlider.addEventListener('input', update);
+            vdsSlider.addEventListener('input', update);
+            vthSlider.addEventListener('input', () => {
+                generateChartData();
+                update();
+            });
+        };
+    </script>
+</body>
+</html>
